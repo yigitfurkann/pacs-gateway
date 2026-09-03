@@ -5,6 +5,13 @@ echo "=============================================="
 echo "PACS Gateway - One-Click Deployment"
 echo "=============================================="
 
+echo "   ██████╗██╗      ██████╗ ██╗   ██╗███████╗"
+echo "  ██╔════╝██║     ██╔═══██╗██║   ██║██╔════╝"
+echo "  ██║     ██║     ██║   ██║██║   ██║███████╗"
+echo "  ██║     ██║     ██║   ██║██║   ██║╚════██║"
+echo "  ╚██████╗███████╗╚██████╔╝╚██████╔╝███████║"
+echo "   ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚══════╝"
+
 # ============================================
 # 0. PUBLIC ve PRIVATE IP'Yİ AL
 # ============================================
@@ -168,7 +175,6 @@ echo ""
 echo "📁 Dizinler oluşturuluyor..."
 sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,prometheus,alertmanager,grafana/dashboards,systemd,logs}
 sudo mkdir -p "$MOUNT_PATH"
-# NOT: Burada chown/chmod verilmedi, kullanıcı oluşturulduktan sonra Bölüm 12'de verilecek.
 
 cd /opt/pacs-gateway
 
@@ -190,7 +196,7 @@ sudo cp config/rclone.conf /etc/rclone/rclone.conf
 sudo chmod 600 /etc/rclone/rclone.conf
 
 # ============================================
-# 6. PROMETHEUS CONFIG (RC KULLANICI BİLGİLERİ İLE)
+# 6. PROMETHEUS CONFIG
 # ============================================
 echo "📝 Prometheus config oluşturuluyor..."
 cat > prometheus/prometheus.yml <<EOF
@@ -372,7 +378,7 @@ volumes:
 EOF
 
 # ============================================
-# 11. SYSTEMD SERVİSLERİ (Rclone Mount burada DEĞİL, Bölüm 12'de)
+# 11. SYSTEMD SERVİSLERİ (Rclone Mount, Bölüm 12'de dinamik yazılacak)
 # ============================================
 echo "📝 Systemd servisleri oluşturuluyor..."
 mkdir -p /opt/pacs-gateway/systemd
@@ -398,14 +404,12 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-# rclone-mount-obs.service dosyası, kullanıcı oluşturulduktan sonra Bölüm 12'de dinamik UID/GID ile yazılacaktır!
-
 sudo cp /opt/pacs-gateway/systemd/rclone-rcd.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable rclone-rcd
 
 # ============================================
-# 12. SAMBA KULLANICISI OLUŞTUR ve RCLONE MONTE ET
+# 12. SAMBA KULLANICISI OLUŞTUR ve RCLONE MONTE ET (KRİTİK DÜZELTME)
 # ============================================
 echo "👤 Samba kullanıcısı oluşturuluyor..."
 sudo useradd -M -s /sbin/nologin "$SMB_USER" 2>/dev/null || true
@@ -468,7 +472,6 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# Mount dizininin sahipliğini SMB kullanıcısına ver (Access Denied çözümü)
 sudo chown -R "$SMB_USER:$SMB_USER" "$MOUNT_PATH"
 sudo chmod 775 "$MOUNT_PATH"
 
@@ -534,7 +537,7 @@ else
 fi
 
 # ============================================
-# 16. KURULUM TAMAMLANDI
+# 16. KURULUM TAMAMLANDI (CLOUS ASCII ART EKLENDİ)
 # ============================================
 echo ""
 echo "=============================================="
@@ -564,6 +567,12 @@ echo "   Rclone mount: sudo journalctl -u rclone-mount-obs -n 10 --no-pager"
 echo "   Samba:        sudo journalctl -u smbd -n 10 --no-pager"
 echo "   Docker:       cd /opt/pacs-gateway && docker compose logs --tail=10"
 echo ""
+echo "   ██████╗██╗      ██████╗ ██╗   ██╗███████╗"
+echo "  ██╔════╝██║     ██╔═══██╗██║   ██║██╔════╝"
+echo "  ██║     ██║     ██║   ██║██║   ██║███████╗"
+echo "  ██║     ██║     ██║   ██║██║   ██║╚════██║"
+echo "  ╚██████╗███████╗╚██████╔╝╚██████╔╝███████║"
+echo "   ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚══════╝"
 echo "=============================================="
 echo "   🚀 Developed by Furkan YIGIT | Cloud Solution Architect | Clous Cloud"
 echo "=============================================="
