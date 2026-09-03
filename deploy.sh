@@ -162,14 +162,13 @@ if command -v ufw &> /dev/null && sudo ufw status | grep -q "Status: active"; th
 fi
 
 # ============================================
-# 4. DİZİNLERİ OLUŞTUR
+# 4. DİZİNLERİ OLUŞTUR (Sahiplik sonra verilecek)
 # ============================================
 echo ""
 echo "📁 Dizinler oluşturuluyor..."
 sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,prometheus,alertmanager,grafana/dashboards,systemd,logs}
 sudo mkdir -p "$MOUNT_PATH"
-sudo chown -R root:root "$MOUNT_PATH"
-sudo chmod 755 "$MOUNT_PATH"
+# NOT: Burada chown/chmod verilmedi, kullanıcı oluşturulduktan sonra Bölüm 12'de verilecek.
 
 cd /opt/pacs-gateway
 
@@ -373,7 +372,7 @@ volumes:
 EOF
 
 # ============================================
-# 11. SYSTEMD SERVİSLERİ
+# 11. SYSTEMD SERVİSLERİ (Rclone Mount burada DEĞİL, Bölüm 12'de)
 # ============================================
 echo "📝 Systemd servisleri oluşturuluyor..."
 mkdir -p /opt/pacs-gateway/systemd
@@ -399,35 +398,14 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-cat > /opt/pacs-gateway/systemd/rclone-mount-obs.service <<EOF
-[Unit]
-Description=Rclone Mount OBS
-After=network-online.target
+# rclone-mount-obs.service dosyası, kullanıcı oluşturulduktan sonra Bölüm 12'de dinamik UID/GID ile yazılacaktır!
 
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${MOUNT_PATH} \
-  --config /etc/rclone/rclone.conf \
-  --allow-other \
-  --vfs-cache-mode full \
-  --vfs-cache-max-age 720h \
-  --vfs-cache-max-size 100G \
-  --dir-cache-time 168h \
-  --buffer-size 256M
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo cp /opt/pacs-gateway/systemd/*.service /etc/systemd/system/
+sudo cp /opt/pacs-gateway/systemd/rclone-rcd.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable rclone-rcd rclone-mount-obs
+sudo systemctl enable rclone-rcd
 
 # ============================================
-# 12. SAMBA KULLANICISI OLUŞTUR
+# 12. SAMBA KULLANICISI OLUŞTUR ve RCLONE MONTE ET
 # ============================================
 echo "👤 Samba kullanıcısı oluşturuluyor..."
 sudo useradd -M -s /sbin/nologin "$SMB_USER" 2>/dev/null || true
@@ -456,6 +434,46 @@ EOF
 
 sudo systemctl enable smbd
 sudo systemctl restart smbd
+
+# --- KRİTİK DÜZELTME: Mount dizinini kullanıcıya ver ve Rclone servisini UID/GID ile başlat ---
+SMB_UID=$(id -u "$SMB_USER")
+SMB_GID=$(id -g "$SMB_USER")
+
+echo "Rclone mount servisi, ${SMB_USER} (UID: ${SMB_UID}, GID: ${SMB_GID}) için yapılandırılıyor..."
+
+cat > /etc/systemd/system/rclone-mount-obs.service <<EOF
+[Unit]
+Description=Rclone Mount OBS
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${MOUNT_PATH} \
+  --config /etc/rclone/rclone.conf \
+  --allow-other \
+  --uid $SMB_UID \
+  --gid $SMB_GID \
+  --dir-perms 0775 \
+  --file-perms 0664 \
+  --vfs-cache-mode full \
+  --vfs-cache-max-age 720h \
+  --vfs-cache-max-size 100G \
+  --dir-cache-time 168h \
+  --buffer-size 256M
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Mount dizininin sahipliğini SMB kullanıcısına ver (Access Denied çözümü)
+sudo chown -R "$SMB_USER:$SMB_USER" "$MOUNT_PATH"
+sudo chmod 775 "$MOUNT_PATH"
+
+sudo systemctl daemon-reload
+sudo systemctl enable rclone-mount-obs
 
 # ============================================
 # 13. RCLONE SERVİSLERİNİ BAŞLAT
