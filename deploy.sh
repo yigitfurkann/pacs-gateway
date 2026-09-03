@@ -154,30 +154,29 @@ echo "   Örnekler: 100G, 500G, 1T"
 read -p "VFS Cache Max Boyut (varsayılan: 100G): " VFS_CACHE_SIZE
 VFS_CACHE_SIZE=${VFS_CACHE_SIZE:-100G}
 
-# --- MOUNT İZİNLERİ ---
+# --- MOUNT İZİNLERİ (AYRI AYRI SORULUR - HİÇ BİLMEYEN İÇİN) ---
 echo ""
 echo "=============================================="
-echo "🔐 DOSYA İZİN AYARLARI (MOUNT_PERMS)"
+echo "🔐 ADIM ADIM DOSYA İZİN AYARLARI"
 echo "=============================================="
-echo "Linux İzin Kodu: 4=Oku, 2=Yaz, 1=Çalıştır"
+echo "Lütfen aşağıdaki 3 soruyu SIRAYLA cevaplayın."
+echo "Virgül veya boşluk kullanmayın, sadece rakamları yazın."
 echo ""
-echo "Dizin İzinleri (İlk 3 hane):"
-echo "  0755 = Sahip(rwx), Grup(r-x), Diğerleri(r-x) -> Sadece Sahip yazabilir"
-echo "  0775 = Sahip(rwx), Grup(rwx), Diğerleri(r-x) -> Sahip ve Grup yazabilir (Önerilen)"
-echo "  0777 = Herkes yazabilir (Test için, riskli)"
+echo "Linux İzin Kodları: 4=Oku, 2=Yaz, 1=Çalıştır"
+echo "  Örnek: 0775 -> Sahip(rwx), Grup(rwx), Diğerleri(r-x)"
+echo "  Örnek: 0664 -> Sahip(rw-), Grup(rw-), Diğerleri(r--)"
 echo ""
-echo "Dosya İzinleri (Son 3 hane):"
-echo "  0644 = Sahip(rw-), Grup(r--), Diğerleri(r--) -> Sadece Sahip yazabilir"
-echo "  0664 = Sahip(rw-), Grup(rw-), Diğerleri(r--) -> Sahip ve Grup yazabilir (Önerilen)"
-echo "  0666 = Herkes yazabilir (Test için, riskli)"
-echo ""
-echo "Umask (Yeni dosya iznini kısıtlar):"
-echo "  0   = Hiç kısıtlama yok (Önerilen test)"
-echo "  022 = Klasik kısıtlama (755/644) -> Prod için standart"
-echo "  077 = Çok katı (700/600) -> Sadece sahip erişebilir"
-read -p "Mount izinleri (dir/file/umask - varsayılan: 0775 0664 0): " MOUNT_PERMS_RAW
-MOUNT_PERMS=${MOUNT_PERMS_RAW:-"0775 0664 0"}
-read DIR_PERMS FILE_PERMS UMASK_VAL <<< "$MOUNT_PERMS"
+
+read -p "1) Dizin İzni (örn: 0775) [varsayılan: 0775]: " DIR_PERMS
+DIR_PERMS=${DIR_PERMS:-0775}
+
+read -p "2) Dosya İzni (örn: 0664) [varsayılan: 0664]: " FILE_PERMS
+FILE_PERMS=${FILE_PERMS:-0664}
+
+echo "Umask: Yeni oluşturulan dosyaların iznini kısıtlar."
+echo "  0 = Hiç kısıtlama yok, 022 = Klasik kısıtlama"
+read -p "3) Umask (örn: 0) [varsayılan: 0]: " UMASK_VAL
+UMASK_VAL=${UMASK_VAL:-0}
 
 # ============================================
 # 3. PORT KONTROLLERİ
