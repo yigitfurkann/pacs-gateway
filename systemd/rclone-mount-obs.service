@@ -5,9 +5,13 @@ After=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} /mnt/pacs-hot/archive \
+ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${MOUNT_PATH} \
   --config /etc/rclone/rclone.conf \
   --allow-other \
+  --uid $SMB_UID \
+  --gid $SMB_GID \
+  --dir-perms 0775 \
+  --file-perms 0664 \
   --vfs-cache-mode full \
   --vfs-cache-max-age 720h \
   --vfs-cache-max-size 100G \
