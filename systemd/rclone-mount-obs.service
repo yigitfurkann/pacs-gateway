@@ -5,7 +5,7 @@ After=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/rclone mount obs-test:furkan-test /mnt/pacs-hot/archive \
+ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} /mnt/pacs-hot/archive \
   --config /etc/rclone/rclone.conf \
   --allow-other \
   --vfs-cache-mode full \
@@ -18,4 +18,3 @@ RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
-
