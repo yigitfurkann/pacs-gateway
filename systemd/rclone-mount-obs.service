@@ -10,11 +10,12 @@ ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${MOUNT_PATH} \
   --allow-other \
   --uid $SMB_UID \
   --gid $SMB_GID \
-  --dir-perms 0775 \
-  --file-perms 0664 \
+  --dir-perms $DIR_PERMS \
+  --file-perms $FILE_PERMS \
+  --umask $UMASK_VAL \
   --vfs-cache-mode full \
-  --vfs-cache-max-age 720h \
-  --vfs-cache-max-size 100G \
+  --vfs-cache-max-age $VFS_CACHE_AGE \
+  --vfs-cache-max-size $VFS_CACHE_SIZE \
   --dir-cache-time 168h \
   --buffer-size 256M
 Restart=always
