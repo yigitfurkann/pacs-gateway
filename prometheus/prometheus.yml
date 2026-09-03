@@ -12,8 +12,8 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:5572']
     basic_auth:
-      username: 'monitor'
-      password: '1Huawei9'
+      username: '${RC_USER}'
+      password: '${RC_PASS}'
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
