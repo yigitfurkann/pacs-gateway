@@ -45,9 +45,37 @@ while [[ -z "$SECRET_KEY" ]]; do
     echo
 done
 
-while [[ -z "$ENDPOINT" ]]; do
-    read -p "OBS Endpoint (örn: obs.tr-west-1.myhuaweicloud.com): " ENDPOINT
-done
+# Region seçimi
+echo ""
+echo "📍 OBS Region seçin:"
+echo "  1) tr-west-1 (Istanbul)"
+echo "  2) eu-west-1 (Ireland)"
+echo "  3) eu-west-2 (London)"
+echo "  4) eu-west-3 (Paris)"
+echo "  5) eu-west-4 (Frankfurt)"
+echo "  6) ap-southeast-1 (Singapore)"
+echo "  7) ap-southeast-2 (Tokyo)"
+echo "  8) ap-southeast-3 (Seoul)"
+echo "  9) cn-north-1 (Beijing)"
+echo "  10) us-east-1 (Virginia)"
+echo "  11) us-west-1 (California)"
+read -p "Seçiminiz (1-11): " REGION_CHOICE
+
+case $REGION_CHOICE in
+    1) ENDPOINT="obs.tr-west-1.myhuaweicloud.com" ;;
+    2) ENDPOINT="obs.eu-west-1.myhuaweicloud.com" ;;
+    3) ENDPOINT="obs.eu-west-2.myhuaweicloud.com" ;;
+    4) ENDPOINT="obs.eu-west-3.myhuaweicloud.com" ;;
+    5) ENDPOINT="obs.eu-west-4.myhuaweicloud.com" ;;
+    6) ENDPOINT="obs.ap-southeast-1.myhuaweicloud.com" ;;
+    7) ENDPOINT="obs.ap-southeast-2.myhuaweicloud.com" ;;
+    8) ENDPOINT="obs.ap-southeast-3.myhuaweicloud.com" ;;
+    9) ENDPOINT="obs.cn-north-1.myhuaweicloud.com" ;;
+    10) ENDPOINT="obs.us-east-1.myhuaweicloud.com" ;;
+    11) ENDPOINT="obs.us-west-1.myhuaweicloud.com" ;;
+    *) echo "Geçersiz seçim, varsayılan tr-west-1 kullanılıyor."; ENDPOINT="obs.tr-west-1.myhuaweicloud.com" ;;
+esac
+echo "✅ Seçilen endpoint: $ENDPOINT"
 
 while [[ -z "$BUCKET_NAME" ]]; do
     read -p "OBS Bucket Adı: " BUCKET_NAME
@@ -75,15 +103,25 @@ while [[ -z "$ALERT_MAIL" ]]; do
     read -p "Alert E-posta Adresi: " ALERT_MAIL
 done
 
+read -p "Rclone RC Kullanıcı Adı (varsayılan: monitor): " RC_USER
+RC_USER=${RC_USER:-monitor}
+read -sp "Rclone RC Şifresi (varsayılan: 1Huawei9): " RC_PASS
+RC_PASS=${RC_PASS:-1Huawei9}
+echo
+
 read -p "Mount Dizini (varsayılan: /mnt/pacs-hot/archive): " MOUNT_PATH
 MOUNT_PATH=${MOUNT_PATH:-/mnt/pacs-hot/archive}
+# Eğer başında / yoksa ekle
+if [[ ! "$MOUNT_PATH" =~ ^/ ]]; then
+    MOUNT_PATH="/$MOUNT_PATH"
+    echo "⚠️  Mount dizini '/' ile düzeltildi: $MOUNT_PATH"
+fi
 
 # ============================================
 # 3. PORT KONTROLLERİ
 # ============================================
 echo ""
 echo "🔍 Port kontrolleri yapılıyor..."
-
 REQUIRED_PORTS=(139 445 3000 5572 9090 9100 9393)
 PORT_ERROR=0
 
@@ -108,6 +146,7 @@ if [[ $PORT_ERROR -eq 1 ]]; then
     fi
 fi
 
+# Güvenlik duvarı kontrolü (UFW)
 if command -v ufw &> /dev/null && sudo ufw status | grep -q "Status: active"; then
     echo ""
     echo "🔒 UFW aktif. Gerekli portlar açılıyor..."
@@ -149,7 +188,7 @@ sudo cp config/rclone.conf /etc/rclone/rclone.conf
 sudo chmod 600 /etc/rclone/rclone.conf
 
 # ============================================
-# 6. PROMETHEUS CONFIG
+# 6. PROMETHEUS CONFIG (RC KULLANICI BİLGİLERİ İLE)
 # ============================================
 echo "📝 Prometheus config oluşturuluyor..."
 cat > prometheus/prometheus.yml <<EOF
@@ -167,8 +206,8 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:5572']
     basic_auth:
-      username: 'monitor'
-      password: '1Huawei9'
+      username: '${RC_USER}'
+      password: '${RC_PASS}'
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
@@ -336,7 +375,7 @@ EOF
 echo "📝 Systemd servisleri oluşturuluyor..."
 mkdir -p /opt/pacs-gateway/systemd
 
-cat > /opt/pacs-gateway/systemd/rclone-rcd.service <<'EOF'
+cat > /opt/pacs-gateway/systemd/rclone-rcd.service <<EOF
 [Unit]
 Description=Rclone Remote Control Daemon
 After=network-online.target
@@ -346,8 +385,8 @@ Type=simple
 User=root
 ExecStart=/usr/bin/rclone rcd \
   --rc-addr=0.0.0.0:5572 \
-  --rc-user=monitor \
-  --rc-pass=1Huawei9 \
+  --rc-user=${RC_USER} \
+  --rc-pass=${RC_PASS} \
   --rc-enable-metrics \
   --rc-web-gui
 Restart=on-failure
@@ -433,28 +472,24 @@ sudo docker compose up -d
 echo ""
 echo "🔍 Kurulum sonrası kontroller yapılıyor..."
 
-# Rclone RC API kontrolü
-if curl -s -u monitor:1Huawei9 http://localhost:5572/metrics > /dev/null 2>&1; then
+if curl -s -u ${RC_USER}:${RC_PASS} http://localhost:5572/metrics > /dev/null 2>&1; then
     echo "✅ Rclone RC API çalışıyor."
 else
     echo "❌ Rclone RC API çalışmıyor! Logları kontrol edin: sudo journalctl -u rclone-rcd -f"
 fi
 
-# Mount kontrolü
 if mount | grep -q "$MOUNT_PATH"; then
     echo "✅ Rclone mount başarılı."
 else
     echo "❌ Rclone mount başarısız! Logları kontrol edin: sudo journalctl -u rclone-mount-obs -f"
 fi
 
-# Samba kontrolü
 if sudo systemctl is-active --quiet smbd; then
     echo "✅ Samba servisi çalışıyor."
 else
     echo "❌ Samba servisi çalışmıyor! Logları kontrol edin: sudo journalctl -u smbd -f"
 fi
 
-# Docker servisleri kontrolü
 if docker ps | grep -q "pacs-prometheus"; then
     echo "✅ Prometheus çalışıyor."
 else
@@ -474,26 +509,7 @@ else
 fi
 
 # ============================================
-# 16. PORT DURUMU ve GÜVENLİK GRUBU BİLGİLERİ
-# ============================================
-echo ""
-echo "=============================================="
-echo "📡 PORT DURUMU (Dinlenen portlar):"
-echo "=============================================="
-sudo ss -tlnp | grep -E ":(139|445|3000|5572|9090|9100|9393)" | awk '{print $1, $4, $6}' | sed 's/users:(("//g' | sed 's/",.*//g' | column -t
-
-echo ""
-echo "=============================================="
-echo "🛡️  GÜVENLİK GRUBU (Firewall) İÇİN AÇILMASI GEREKEN PORTLAR:"
-echo "=============================================="
-echo "Inbound TCP 139, 445   → SMB (Windows dosya paylaşımı)"
-echo "Inbound TCP 3000       → Grafana web arayüzü"
-echo "Inbound TCP 9090       → Prometheus web arayüzü"
-echo "Inbound TCP 5572       → Rclone RC API (metrik)"
-echo "Inbound TCP 9393       → Alertmanager web arayüzü"
-
-# ============================================
-# 17. KURULUM TAMAMLANDI
+# 16. KURULUM TAMAMLANDI
 # ============================================
 echo ""
 echo "=============================================="
@@ -507,7 +523,7 @@ echo "   Şifre: (girilen şifre)"
 echo ""
 echo "   Grafana: http://$PUBLIC_IP:3000 (admin/admin)"
 echo "   Prometheus: http://$PUBLIC_IP:9090"
-echo "   Rclone Web GUI: http://$PUBLIC_IP:5572 (monitor/1Huawei9)"
+echo "   Rclone Web GUI: http://$PUBLIC_IP:5572 ($RC_USER/$RC_PASS)"
 echo "   Alertmanager: http://$PUBLIC_IP:9393"
 echo ""
 echo "📋 Servis Yönetimi:"
