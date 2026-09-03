@@ -1,9 +1,9 @@
 global:
   resolve_timeout: 5m
   smtp_smarthost: 'smtp.gmail.com:587'
-  smtp_from: ''
-  smtp_auth_username: ''
-  smtp_auth_password: ''   # BURAYA GERÇEK UYGULAMA ŞİFRENİ YAZ
+  smtp_from: 'YOUR_SMTP_MAIL'
+  smtp_auth_username: 'YOUR_SMTP_MAIL'
+  smtp_auth_password: 'YOUR_SMTP_PASS'
   smtp_require_tls: true
 
 route:
@@ -16,7 +16,7 @@ route:
 receivers:
   - name: 'email-admin'
     email_configs:
-      - to: ''   # BURAYA ALARM GİDECEK MAİL ADRESİNİ YAZ
+      - to: 'YOUR_ALERT_MAIL'
         send_resolved: true
         headers:
           Subject: '[PACS-ALERT] {{ .GroupLabels.alertname }}'
