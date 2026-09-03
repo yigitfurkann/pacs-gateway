@@ -6,16 +6,13 @@ echo "PACS Gateway - One-Click Deployment"
 echo "=============================================="
 
 # ============================================
-# 0. PUBLIC ve PRIVATE IP'LERİ AL
+# 0. PUBLIC ve PRIVATE IP'Yİ AL
 # ============================================
 PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null)
 if [[ -z "$PUBLIC_IP" ]]; then
     read -p "Public IP adresini manuel girin: " PUBLIC_IP
 fi
 PRIVATE_IP=$(hostname -I | awk '{print $1}')
-if [[ -z "$PRIVATE_IP" ]]; then
-    PRIVATE_IP=$(ip route get 1 | awk '{print $NF;exit}')
-fi
 
 # ============================================
 # 1. DOCKER ve DOCKER COMPOSE KURULUMU
@@ -107,7 +104,7 @@ while [[ -z "$ALERT_MAIL" ]]; do
     read -p "Alert E-posta Adresi: " ALERT_MAIL
 done
 
-# RC (Rclone Remote Control) Kimlik Bilgileri (ZORUNLU)
+# RC Kimlik Bilgileri (ZORUNLU)
 while [[ -z "$RC_USER" ]]; do
     read -p "Rclone RC Kullanıcı Adı: " RC_USER
 done
@@ -152,6 +149,7 @@ if [[ $PORT_ERROR -eq 1 ]]; then
     fi
 fi
 
+# Güvenlik duvarı kontrolü (UFW)
 if command -v ufw &> /dev/null && sudo ufw status | grep -q "Status: active"; then
     echo ""
     echo "🔒 UFW aktif. Gerekli portlar açılıyor..."
@@ -211,8 +209,8 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:5572']
     basic_auth:
-      username: '${RC_USER}'
-      password: '${RC_PASS}'
+      username: '$RC_USER'
+      password: '$RC_PASS'
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
@@ -390,8 +388,8 @@ Type=simple
 User=root
 ExecStart=/usr/bin/rclone rcd \
   --rc-addr=0.0.0.0:5572 \
-  --rc-user=${RC_USER} \
-  --rc-pass=${RC_PASS} \
+  --rc-user=$RC_USER \
+  --rc-pass=$RC_PASS \
   --rc-enable-metrics \
   --rc-web-gui
 Restart=on-failure
