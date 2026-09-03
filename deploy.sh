@@ -369,8 +369,10 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./provisioning:/etc/grafana/provisioning:ro
     environment:
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_AUTH_ANONYMOUS_ENABLED=false
 
 volumes:
   prometheus_data:
@@ -409,7 +411,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable rclone-rcd
 
 # ============================================
-# 12. SAMBA KULLANICISI OLUŞTUR ve RCLONE MONTE ET (KRİTİK DÜZELTME)
+# 12. SAMBA KULLANICISI OLUŞTUR ve RCLONE MONTE ET (KRİTİK DÜZELTME - Tam Yetki)
 # ============================================
 echo "👤 Samba kullanıcısı oluşturuluyor..."
 sudo useradd -M -s /sbin/nologin "$SMB_USER" 2>/dev/null || true
@@ -432,14 +434,14 @@ sudo tee /etc/samba/smb.conf > /dev/null <<EOF
    guest ok = no
    valid users = $SMB_USER
    force user = $SMB_USER
-   create mask = 0644
-   directory mask = 0755
+   create mask = 0666
+   directory mask = 0777
 EOF
 
 sudo systemctl enable smbd
 sudo systemctl restart smbd
 
-# --- KRİTİK DÜZELTME: Mount dizinini kullanıcıya ver ve Rclone servisini UID/GID ile başlat ---
+# --- KRİTİK DÜZELTME: Mount dizinini kullanıcıya ver ve Rclone servisini TAM YETKİ ile başlat ---
 SMB_UID=$(id -u "$SMB_USER")
 SMB_GID=$(id -g "$SMB_USER")
 
@@ -458,8 +460,9 @@ ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${MOUNT_PATH} \
   --allow-other \
   --uid $SMB_UID \
   --gid $SMB_GID \
-  --dir-perms 0775 \
-  --file-perms 0664 \
+  --dir-perms 0777 \
+  --file-perms 0666 \
+  --umask 0 \
   --vfs-cache-mode full \
   --vfs-cache-max-age 720h \
   --vfs-cache-max-size 100G \
@@ -472,8 +475,9 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
+# Mount dizininin sahipliğini SMB kullanıcısına ver ve tüm izinleri aç (Access Denied çözümü)
 sudo chown -R "$SMB_USER:$SMB_USER" "$MOUNT_PATH"
-sudo chmod 775 "$MOUNT_PATH"
+sudo chmod -R 777 "$MOUNT_PATH"
 
 sudo systemctl daemon-reload
 sudo systemctl enable rclone-mount-obs
@@ -537,7 +541,7 @@ else
 fi
 
 # ============================================
-# 16. KURULUM TAMAMLANDI (CLOUS ASCII ART EKLENDİ)
+# 16. KURULUM TAMAMLANDI (CLOUS ASCII ART)
 # ============================================
 echo ""
 echo "=============================================="
@@ -566,6 +570,7 @@ echo "📝 HATA KONTROLÜ (Loglar):"
 echo "   Rclone mount: sudo journalctl -u rclone-mount-obs -n 10 --no-pager"
 echo "   Samba:        sudo journalctl -u smbd -n 10 --no-pager"
 echo "   Docker:       cd /opt/pacs-gateway && docker compose logs --tail=10"
+echo ""
 echo ""
 echo "   ██████╗██╗      ██████╗ ██╗   ██╗███████╗"
 echo "  ██╔════╝██║     ██╔═══██╗██║   ██║██╔════╝"
