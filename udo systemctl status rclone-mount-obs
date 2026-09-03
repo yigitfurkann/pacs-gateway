@@ -1,0 +1,17 @@
+○ smbd.service - Samba SMB Daemon
+     Loaded: loaded (]8;;file://ecs-rclone-pro-grafa/usr/lib/systemd/system/smbd.service/usr/lib/systemd/system/smbd.service]8;;; [0;1;38;5;185mdisabled[0m; preset: [0;1;32menabled[0m)
+     Active: inactive (dead)
+       Docs: ]8;;man:smbd(8)man:smbd(8)]8;;
+             ]8;;man:samba(7)man:samba(7)]8;;
+             ]8;;man:smb.conf(5)man:smb.conf(5)]8;;
+
+Sep 03 16:31:35 ecs-rclone-pro-grafa systemd[1]: smbd.service: Deactivated successfully.
+Sep 03 16:31:35 ecs-rclone-pro-grafa systemd[1]: Stopped smbd.service - Samba SMB Daemon.
+Sep 03 16:31:35 ecs-rclone-pro-grafa systemd[1]: Starting smbd.service - Samba SMB Daemon...
+Sep 03 16:31:35 ecs-rclone-pro-grafa (smbd)[17234]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185msmbd.service: Referenced but unset environment variable evaluates to an empty string: SMBDOPTIONS[0m
+Sep 03 16:31:35 ecs-rclone-pro-grafa systemd[1]: Started smbd.service - Samba SMB Daemon.
+Sep 03 16:31:42 ecs-rclone-pro-grafa smbd[17248]: pam_unix(samba:session): session opened for user pacsuser(uid=1000) by (uid=0)
+Sep 03 18:02:45 ecs-rclone-pro-grafa systemd[1]: Stopping smbd.service - Samba SMB Daemon...
+Sep 03 18:02:45 ecs-rclone-pro-grafa smbd[17248]: pam_unix(samba:session): session closed for user pacsuser
+Sep 03 18:02:45 ecs-rclone-pro-grafa systemd[1]: smbd.service: Deactivated successfully.
+Sep 03 18:02:45 ecs-rclone-pro-grafa systemd[1]: Stopped smbd.service - Samba SMB Daemon.

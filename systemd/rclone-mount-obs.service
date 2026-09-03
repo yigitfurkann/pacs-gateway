@@ -1,0 +1,21 @@
+[Unit]
+Description=Rclone Mount OBS
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/rclone mount obs-test:furkan-test /mnt/pacs-hot/archive \
+  --config /etc/rclone/rclone.conf \
+  --allow-other \
+  --vfs-cache-mode full \
+  --vfs-cache-max-age 720h \
+  --vfs-cache-max-size 100G \
+  --dir-cache-time 168h \
+  --buffer-size 256M
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+

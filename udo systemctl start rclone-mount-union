@@ -1,0 +1,11 @@
+[0;1;32m●[0m rclone-mount-minio.service - Rclone Mount MinIO
+     Loaded: loaded (]8;;file://ecs-rclone-pro-grafa/etc/systemd/system/rclone-mount-minio.service/etc/systemd/system/rclone-mount-minio.service]8;;; [0;1;38;5;185mdisabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Thu 2026-09-03 18:12:34 CST; 11ms ago
+   Main PID: 44831 (rclone)
+      Tasks: 7 (limit: 8682)
+     Memory: 5.1M (peak: 5.4M)
+        CPU: 10ms
+     CGroup: /system.slice/rclone-mount-minio.service
+             └─[0;38;5;245m44831 /usr/bin/rclone mount minio:test-bucket /mnt/pacs-hot/minio --allow-other --vfs-cache-mode full --vfs-cache-max-age 720h --vfs-cache-max-size 100G --dir-cache-time 168h --buffer-size 256M[0m
+
+Sep 03 18:12:34 ecs-rclone-pro-grafa systemd[1]: Started rclone-mount-minio.service - Rclone Mount MinIO.

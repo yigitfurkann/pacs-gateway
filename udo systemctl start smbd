@@ -1,0 +1,22 @@
+[0;1;32m●[0m smbd.service - Samba SMB Daemon
+     Loaded: loaded (]8;;file://ecs-rclone-pro-grafa/usr/lib/systemd/system/smbd.service/usr/lib/systemd/system/smbd.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Thu 2026-09-03 18:13:42 CST; 2min 12s ago
+       Docs: ]8;;man:smbd(8)man:smbd(8)]8;;
+             ]8;;man:samba(7)man:samba(7)]8;;
+             ]8;;man:smb.conf(5)man:smb.conf(5)]8;;
+    Process: 45175 ExecCondition=/usr/share/samba/is-configured smb (code=exited, status=0/SUCCESS)
+   Main PID: 45178 (smbd)
+     Status: "[0;1;36msmbd: ready to serve connections...[0m"
+      Tasks: 4 (limit: 8682)
+     Memory: 9.1M (peak: 9.6M)
+        CPU: 51ms
+     CGroup: /system.slice/smbd.service
+             ├─[0;38;5;245m45178 /usr/sbin/smbd --foreground --no-process-group[0m
+             ├─[0;38;5;245m45181 "smbd: notifyd" .[0m
+             ├─[0;38;5;245m45182 "smbd: cleanupd "[0m
+             └─[0;38;5;245m46138 "smbd: client [172.31.254.120]"[0m
+
+Sep 03 18:13:42 ecs-rclone-pro-grafa systemd[1]: Starting smbd.service - Samba SMB Daemon...
+Sep 03 18:13:42 ecs-rclone-pro-grafa (smbd)[45178]: [0;1;38;5;185m[0;1;39m[0;1;38;5;185msmbd.service: Referenced but unset environment variable evaluates to an empty string: SMBDOPTIONS[0m
+Sep 03 18:13:42 ecs-rclone-pro-grafa systemd[1]: Started smbd.service - Samba SMB Daemon.
+Sep 03 18:13:59 ecs-rclone-pro-grafa smbd[46138]: pam_unix(samba:session): session opened for user pacsuser(uid=1000) by (uid=0)

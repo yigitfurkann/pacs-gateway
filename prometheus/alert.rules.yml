@@ -1,0 +1,35 @@
+groups:
+  - name: pacs_alerts
+    rules:
+      - alert: RcloneServiceDown
+        expr: up{job="rclone"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Rclone servisi çöktü!"
+          description: "RC API yanıt vermiyor. OBS erişimi kesildi."
+      - alert: SambaServiceDown
+        expr: up{job="samba"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Samba servisi çalışmıyor!"
+          description: "Windows client'lar paylaşıma erişemiyor."
+      - alert: RcloneTransferStalled
+        expr: rate(rclone_bytes_transferred_total[5m]) == 0 and rclone_active_transfers > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Transfer kilitlendi!"
+          description: "Aktif transfer olmasına rağmen 5 dakikadır veri akışı 0 B/s."
+      - alert: HotStorageDiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/mnt/pacs-hot"} / node_filesystem_size_bytes{mountpoint="/mnt/pacs-hot"} * 100) < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Hot disk %90 dolu!"
+          description: "Disk alanı kritik seviyede. Hemen müdahale edin."
