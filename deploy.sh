@@ -84,7 +84,6 @@ MOUNT_PATH=${MOUNT_PATH:-/mnt/pacs-hot/archive}
 echo ""
 echo "🔍 Port kontrolleri yapılıyor..."
 
-# Gerekli portlar
 REQUIRED_PORTS=(139 445 3000 5572 9090 9100 9393)
 PORT_ERROR=0
 
@@ -100,7 +99,6 @@ done
 if [[ $PORT_ERROR -eq 1 ]]; then
     echo ""
     echo "❌ Bazı portlar zaten kullanımda!"
-    echo "Lütfen aşağıdaki komutla hangi servislerin bu portları kullandığını kontrol edin:"
     echo "  sudo ss -tlnp | grep -E ':(139|445|3000|5572|9090|9100|9393)'"
     read -p "Devam etmek istiyor musunuz? (y/N): " CONTINUE
     if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
@@ -109,7 +107,6 @@ if [[ $PORT_ERROR -eq 1 ]]; then
     fi
 fi
 
-# Güvenlik duvarı kontrolü (UFW)
 if command -v ufw &> /dev/null && sudo ufw status | grep -q "Status: active"; then
     echo ""
     echo "🔒 UFW aktif. Gerekli portlar açılıyor..."
@@ -126,7 +123,7 @@ fi
 # ============================================
 echo ""
 echo "📁 Dizinler oluşturuluyor..."
-sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,prometheus,alertmanager,grafana/dashboards,systemd,logs}
+sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,prometheus,alertmanager,grafana/dashboards,provisioning/datasources,systemd,logs}
 sudo mkdir -p "$MOUNT_PATH"
 sudo chown -R root:root "$MOUNT_PATH"
 sudo chmod 755 "$MOUNT_PATH"
@@ -246,9 +243,11 @@ receivers:
 EOF
 
 # ============================================
-# 9. GRAFANA CONFIG
+# 9. GRAFANA CONFIG + PROVISIONING
 # ============================================
-echo "📝 Grafana config oluşturuluyor..."
+echo "📝 Grafana config ve provisioning oluşturuluyor..."
+
+# Grafana ana config
 cat > grafana/grafana.ini <<EOF
 [paths]
 data = /var/lib/grafana
@@ -266,8 +265,61 @@ from_address = $SMTP_MAIL
 from_name = PACS Grafana Alarm
 EOF
 
+# Grafana provisioning - datasources
+mkdir -p provisioning/datasources
+cat > provisioning/datasources/prometheus.yml <<EOF
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+EOF
+
+# Grafana provisioning - dashboards (otomatik import)
+mkdir -p provisioning/dashboards
+cat > provisioning/dashboards/default.yml <<EOF
+apiVersion: 1
+providers:
+  - name: 'default'
+    folder: ''
+    type: file
+    options:
+      path: /etc/grafana/provisioning/dashboards
+EOF
+
+# Rclone dashboard (JSON)
+cat > provisioning/dashboards/rclone.json <<'EOF'
+{
+  "title": "Rclone Dashboard",
+  "uid": "rclone-dashboard",
+  "panels": [
+    {
+      "title": "Transfer Rate",
+      "targets": [
+        {
+          "expr": "rate(rclone_bytes_transferred_total[1m])",
+          "legendFormat": "Bytes/s"
+        }
+      ]
+    },
+    {
+      "title": "Total Transferred",
+      "targets": [
+        {
+          "expr": "rclone_bytes_transferred_total",
+          "legendFormat": "Total Bytes"
+        }
+      ]
+    }
+  ]
+}
+EOF
+
 # ============================================
-# 10. DOCKER COMPOSE DOSYASI
+# 10. DOCKER COMPOSE DOSYASI (GÜNCELLENDİ)
 # ============================================
 echo "📝 Docker Compose dosyası oluşturuluyor..."
 cat > docker-compose.yml <<'EOF'
@@ -324,8 +376,10 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./provisioning:/etc/grafana/provisioning:ro
     environment:
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
+      - GF_AUTH_ANONYMOUS_ENABLED=false
 
 volumes:
   prometheus_data:
@@ -435,44 +489,40 @@ sudo docker compose up -d
 echo ""
 echo "🔍 Kurulum sonrası kontroller yapılıyor..."
 
-# Rclone RC API kontrolü
 if curl -s -u monitor:1Huawei9 http://localhost:5572/metrics > /dev/null 2>&1; then
     echo "✅ Rclone RC API çalışıyor."
 else
-    echo "❌ Rclone RC API çalışmıyor! Logları kontrol edin: sudo journalctl -u rclone-rcd -f"
+    echo "❌ Rclone RC API çalışmıyor! Log: sudo journalctl -u rclone-rcd -f"
 fi
 
-# Mount kontrolü
 if mount | grep -q "$MOUNT_PATH"; then
     echo "✅ Rclone mount başarılı."
 else
-    echo "❌ Rclone mount başarısız! Logları kontrol edin: sudo journalctl -u rclone-mount-obs -f"
+    echo "❌ Rclone mount başarısız! Log: sudo journalctl -u rclone-mount-obs -f"
 fi
 
-# Samba kontrolü
 if sudo systemctl is-active --quiet smbd; then
     echo "✅ Samba servisi çalışıyor."
 else
-    echo "❌ Samba servisi çalışmıyor! Logları kontrol edin: sudo journalctl -u smbd -f"
+    echo "❌ Samba servisi çalışmıyor! Log: sudo journalctl -u smbd -f"
 fi
 
-# Docker servisleri kontrolü
 if docker ps | grep -q "pacs-prometheus"; then
     echo "✅ Prometheus çalışıyor."
 else
-    echo "❌ Prometheus çalışmıyor! Logları kontrol edin: docker logs pacs-prometheus"
+    echo "❌ Prometheus çalışmıyor! Log: docker logs pacs-prometheus"
 fi
 
 if docker ps | grep -q "pacs-grafana"; then
     echo "✅ Grafana çalışıyor."
 else
-    echo "❌ Grafana çalışmıyor! Logları kontrol edin: docker logs pacs-grafana"
+    echo "❌ Grafana çalışmıyor! Log: docker logs pacs-grafana"
 fi
 
 if docker ps | grep -q "pacs-alertmanager"; then
     echo "✅ Alertmanager çalışıyor."
 else
-    echo "❌ Alertmanager çalışmıyor! Logları kontrol edin: docker logs pacs-alertmanager"
+    echo "❌ Alertmanager çalışmıyor! Log: docker logs pacs-alertmanager"
 fi
 
 # ============================================
