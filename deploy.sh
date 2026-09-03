@@ -6,11 +6,15 @@ echo "PACS Gateway - One-Click Deployment"
 echo "=============================================="
 
 # ============================================
-# 0. PUBLIC IP'Yİ AL
+# 0. PUBLIC ve PRIVATE IP'LERİ AL
 # ============================================
 PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null)
 if [[ -z "$PUBLIC_IP" ]]; then
     read -p "Public IP adresini manuel girin: " PUBLIC_IP
+fi
+PRIVATE_IP=$(hostname -I | awk '{print $1}')
+if [[ -z "$PRIVATE_IP" ]]; then
+    PRIVATE_IP=$(ip route get 1 | awk '{print $NF;exit}')
 fi
 
 # ============================================
@@ -103,15 +107,17 @@ while [[ -z "$ALERT_MAIL" ]]; do
     read -p "Alert E-posta Adresi: " ALERT_MAIL
 done
 
-read -p "Rclone RC Kullanıcı Adı (varsayılan: monitor): " RC_USER
-RC_USER=${RC_USER:-monitor}
-read -sp "Rclone RC Şifresi (varsayılan: 1Huawei9): " RC_PASS
-RC_PASS=${RC_PASS:-1Huawei9}
-echo
+# RC (Rclone Remote Control) Kimlik Bilgileri (ZORUNLU)
+while [[ -z "$RC_USER" ]]; do
+    read -p "Rclone RC Kullanıcı Adı: " RC_USER
+done
+while [[ -z "$RC_PASS" ]]; do
+    read -sp "Rclone RC Şifresi: " RC_PASS
+    echo
+done
 
 read -p "Mount Dizini (varsayılan: /mnt/pacs-hot/archive): " MOUNT_PATH
 MOUNT_PATH=${MOUNT_PATH:-/mnt/pacs-hot/archive}
-# Eğer başında / yoksa ekle
 if [[ ! "$MOUNT_PATH" =~ ^/ ]]; then
     MOUNT_PATH="/$MOUNT_PATH"
     echo "⚠️  Mount dizini '/' ile düzeltildi: $MOUNT_PATH"
@@ -146,7 +152,6 @@ if [[ $PORT_ERROR -eq 1 ]]; then
     fi
 fi
 
-# Güvenlik duvarı kontrolü (UFW)
 if command -v ufw &> /dev/null && sudo ufw status | grep -q "Status: active"; then
     echo ""
     echo "🔒 UFW aktif. Gerekli portlar açılıyor..."
@@ -503,9 +508,13 @@ else
 fi
 
 if docker ps | grep -q "pacs-alertmanager"; then
-    echo "✅ Alertmanager çalışıyor."
+    if curl -s http://localhost:9393 > /dev/null 2>&1; then
+        echo "✅ Alertmanager UI çalışıyor."
+    else
+        echo "❌ Alertmanager UI çalışmıyor! Logları kontrol edin: docker logs pacs-alertmanager"
+    fi
 else
-    echo "❌ Alertmanager çalışmıyor! Logları kontrol edin: docker logs pacs-alertmanager"
+    echo "❌ Alertmanager container'ı çalışmıyor!"
 fi
 
 # ============================================
@@ -517,9 +526,11 @@ echo "✅ Kurulum tamamlandı!"
 echo "=============================================="
 echo ""
 echo "📌 Erişim Bilgileri:"
+echo "   Private IP: $PRIVATE_IP"
+echo "   Public IP: $PUBLIC_IP"
 echo "   SMB Paylaşımı: \\\\$PUBLIC_IP\\PACS_Archive"
-echo "   Kullanıcı: $SMB_USER"
-echo "   Şifre: (girilen şifre)"
+echo "   SMB Kullanıcı: $SMB_USER"
+echo "   SMB Şifre: (girilen şifre)"
 echo ""
 echo "   Grafana: http://$PUBLIC_IP:3000 (admin/admin)"
 echo "   Prometheus: http://$PUBLIC_IP:9090"
