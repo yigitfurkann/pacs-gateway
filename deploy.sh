@@ -6,6 +6,14 @@ echo "PACS Gateway - One-Click Deployment"
 echo "=============================================="
 
 # ============================================
+# 0. PUBLIC IP'Yİ AL
+# ============================================
+PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null)
+if [[ -z "$PUBLIC_IP" ]]; then
+    read -p "Public IP adresini manuel girin: " PUBLIC_IP
+fi
+
+# ============================================
 # 1. DOCKER ve DOCKER COMPOSE KURULUMU
 # ============================================
 if ! command -v docker &> /dev/null; then
@@ -26,15 +34,7 @@ else
 fi
 
 # ============================================
-# 2. PUBLIC IP'Yİ AL
-# ============================================
-PUBLIC_IP=$(curl -s ifconfig.me)
-if [[ -z "$PUBLIC_IP" ]]; then
-    read -p "Public IP adresini manuel girin: " PUBLIC_IP
-fi
-
-# ============================================
-# 3. KULLANICIDAN BİLGİLERİ AL (ZORUNLU)
+# 2. KULLANICIDAN BİLGİLERİ AL (ZORUNLU)
 # ============================================
 while [[ -z "$ACCESS_KEY" ]]; do
     read -p "Huawei OBS Access Key: " ACCESS_KEY
@@ -79,8 +79,53 @@ read -p "Mount Dizini (varsayılan: /mnt/pacs-hot/archive): " MOUNT_PATH
 MOUNT_PATH=${MOUNT_PATH:-/mnt/pacs-hot/archive}
 
 # ============================================
+# 3. PORT KONTROLLERİ
+# ============================================
+echo ""
+echo "🔍 Port kontrolleri yapılıyor..."
+
+# Gerekli portlar
+REQUIRED_PORTS=(139 445 3000 5572 9090 9100 9393)
+PORT_ERROR=0
+
+for port in "${REQUIRED_PORTS[@]}"; do
+    if sudo ss -tlnp | grep -q ":$port "; then
+        echo "⚠️  Port $port zaten kullanımda!"
+        PORT_ERROR=1
+    else
+        echo "✅ Port $port kullanıma uygun."
+    fi
+done
+
+if [[ $PORT_ERROR -eq 1 ]]; then
+    echo ""
+    echo "❌ Bazı portlar zaten kullanımda!"
+    echo "Lütfen aşağıdaki komutla hangi servislerin bu portları kullandığını kontrol edin:"
+    echo "  sudo ss -tlnp | grep -E ':(139|445|3000|5572|9090|9100|9393)'"
+    read -p "Devam etmek istiyor musunuz? (y/N): " CONTINUE
+    if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+        echo "Kurulum iptal edildi."
+        exit 1
+    fi
+fi
+
+# Güvenlik duvarı kontrolü (UFW)
+if command -v ufw &> /dev/null && sudo ufw status | grep -q "Status: active"; then
+    echo ""
+    echo "🔒 UFW aktif. Gerekli portlar açılıyor..."
+    sudo ufw allow 139,445/tcp comment 'SMB'
+    sudo ufw allow 3000/tcp comment 'Grafana'
+    sudo ufw allow 5572/tcp comment 'Rclone'
+    sudo ufw allow 9090/tcp comment 'Prometheus'
+    sudo ufw allow 9100/tcp comment 'Node-Exporter'
+    sudo ufw allow 9393/tcp comment 'Alertmanager'
+fi
+
+# ============================================
 # 4. DİZİNLERİ OLUŞTUR
 # ============================================
+echo ""
+echo "📁 Dizinler oluşturuluyor..."
 sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,prometheus,alertmanager,grafana/dashboards,systemd,logs}
 sudo mkdir -p "$MOUNT_PATH"
 sudo chown -R root:root "$MOUNT_PATH"
@@ -91,6 +136,7 @@ cd /opt/pacs-gateway
 # ============================================
 # 5. RCLONE CONFIG
 # ============================================
+echo "📝 Rclone config oluşturuluyor..."
 cat > config/rclone.conf <<EOF
 [obs]
 type = s3
@@ -107,6 +153,7 @@ sudo chmod 600 /etc/rclone/rclone.conf
 # ============================================
 # 6. PROMETHEUS CONFIG
 # ============================================
+echo "📝 Prometheus config oluşturuluyor..."
 cat > prometheus/prometheus.yml <<EOF
 global:
   scrape_interval: 15s
@@ -132,6 +179,7 @@ EOF
 # ============================================
 # 7. ALARM KURALLARI
 # ============================================
+echo "📝 Alarm kuralları oluşturuluyor..."
 cat > prometheus/alert.rules.yml <<'EOF'
 groups:
   - name: pacs_alerts
@@ -173,6 +221,7 @@ EOF
 # ============================================
 # 8. ALERTMANAGER CONFIG
 # ============================================
+echo "📝 Alertmanager config oluşturuluyor..."
 cat > alertmanager/alertmanager.yml <<EOF
 global:
   resolve_timeout: 5m
@@ -199,6 +248,7 @@ EOF
 # ============================================
 # 9. GRAFANA CONFIG
 # ============================================
+echo "📝 Grafana config oluşturuluyor..."
 cat > grafana/grafana.ini <<EOF
 [paths]
 data = /var/lib/grafana
@@ -219,6 +269,7 @@ EOF
 # ============================================
 # 10. DOCKER COMPOSE DOSYASI
 # ============================================
+echo "📝 Docker Compose dosyası oluşturuluyor..."
 cat > docker-compose.yml <<'EOF'
 services:
   node-exporter:
@@ -284,6 +335,7 @@ EOF
 # ============================================
 # 11. SYSTEMD SERVİSLERİ
 # ============================================
+echo "📝 Systemd servisleri oluşturuluyor..."
 mkdir -p /opt/pacs-gateway/systemd
 
 cat > /opt/pacs-gateway/systemd/rclone-rcd.service <<'EOF'
@@ -337,10 +389,10 @@ sudo systemctl enable rclone-rcd rclone-mount-obs
 # ============================================
 # 12. SAMBA KULLANICISI OLUŞTUR
 # ============================================
+echo "👤 Samba kullanıcısı oluşturuluyor..."
 sudo useradd -M -s /sbin/nologin "$SMB_USER" 2>/dev/null || true
 echo -e "$SMB_PASS\n$SMB_PASS" | sudo smbpasswd -a -s "$SMB_USER"
 
-# Samba yapılandırması
 sudo tee /etc/samba/smb.conf > /dev/null <<EOF
 [global]
    server min protocol = SMB2
@@ -368,48 +420,81 @@ sudo systemctl restart smbd
 # ============================================
 # 13. RCLONE SERVİSLERİNİ BAŞLAT
 # ============================================
+echo "🚀 Rclone servisleri başlatılıyor..."
 sudo systemctl start rclone-rcd rclone-mount-obs
 
 # ============================================
 # 14. DOCKER COMPOSE BAŞLAT
 # ============================================
+echo "🐳 Docker Compose başlatılıyor..."
 sudo docker compose up -d
 
 # ============================================
-# 15. PORT KONTROLÜ VE DURUM BİLGİSİ
+# 15. KURULUM SONRASI KONTROLLER
+# ============================================
+echo ""
+echo "🔍 Kurulum sonrası kontroller yapılıyor..."
+
+# Rclone RC API kontrolü
+if curl -s -u monitor:1Huawei9 http://localhost:5572/metrics > /dev/null 2>&1; then
+    echo "✅ Rclone RC API çalışıyor."
+else
+    echo "❌ Rclone RC API çalışmıyor! Logları kontrol edin: sudo journalctl -u rclone-rcd -f"
+fi
+
+# Mount kontrolü
+if mount | grep -q "$MOUNT_PATH"; then
+    echo "✅ Rclone mount başarılı."
+else
+    echo "❌ Rclone mount başarısız! Logları kontrol edin: sudo journalctl -u rclone-mount-obs -f"
+fi
+
+# Samba kontrolü
+if sudo systemctl is-active --quiet smbd; then
+    echo "✅ Samba servisi çalışıyor."
+else
+    echo "❌ Samba servisi çalışmıyor! Logları kontrol edin: sudo journalctl -u smbd -f"
+fi
+
+# Docker servisleri kontrolü
+if docker ps | grep -q "pacs-prometheus"; then
+    echo "✅ Prometheus çalışıyor."
+else
+    echo "❌ Prometheus çalışmıyor! Logları kontrol edin: docker logs pacs-prometheus"
+fi
+
+if docker ps | grep -q "pacs-grafana"; then
+    echo "✅ Grafana çalışıyor."
+else
+    echo "❌ Grafana çalışmıyor! Logları kontrol edin: docker logs pacs-grafana"
+fi
+
+if docker ps | grep -q "pacs-alertmanager"; then
+    echo "✅ Alertmanager çalışıyor."
+else
+    echo "❌ Alertmanager çalışmıyor! Logları kontrol edin: docker logs pacs-alertmanager"
+fi
+
+# ============================================
+# 16. KURULUM TAMAMLANDI
 # ============================================
 echo ""
 echo "=============================================="
-echo "Kurulum tamamlandı!"
+echo "✅ Kurulum tamamlandı!"
 echo "=============================================="
-echo "SMB Paylaşımı: \\\\$PUBLIC_IP\\PACS_Archive"
+echo ""
+echo "📌 Erişim Bilgileri:"
+echo "   SMB Paylaşımı: \\\\$PUBLIC_IP\\PACS_Archive"
 echo "   Kullanıcı: $SMB_USER"
 echo "   Şifre: (girilen şifre)"
 echo ""
-echo "Grafana: http://$PUBLIC_IP:3000 (admin/admin)"
-echo "Prometheus: http://$PUBLIC_IP:9090"
-echo "Rclone Web GUI: http://$PUBLIC_IP:5572 (monitor/1Huawei9)"
-echo "Alertmanager: http://$PUBLIC_IP:9393"
+echo "   Grafana: http://$PUBLIC_IP:3000 (admin/admin)"
+echo "   Prometheus: http://$PUBLIC_IP:9090"
+echo "   Rclone Web GUI: http://$PUBLIC_IP:5572 (monitor/1Huawei9)"
 echo ""
-echo "=============================================="
-echo "PORT DURUMU (Dinlenen portlar):"
-echo "=============================================="
-sudo ss -tlnp | grep -E "139|445|3000|9090|5572|9393" || echo "Hiçbir servis port dinlemiyor (henüz başlamamış olabilir)."
-
+echo "📋 Servis Yönetimi:"
+echo "   Systemd: sudo systemctl status rclone-mount-obs rclone-rcd smbd"
+echo "   Docker: cd /opt/pacs-gateway && docker compose ps"
 echo ""
-echo "=============================================="
-echo "GÜVENLİK GRUBU (Firewall) İÇİN AÇILMASI GEREKEN PORTLAR:"
-echo "=============================================="
-echo "Inbound TCP 139, 445   → SMB (Windows dosya paylaşımı)"
-echo "Inbound TCP 3000       → Grafana web arayüzü"
-echo "Inbound TCP 9090       → Prometheus web arayüzü"
-echo "Inbound TCP 5572       → Rclone RC API (metrik)"
-echo "Inbound TCP 9393       → Alertmanager web arayüzü"
-echo ""
-echo "=============================================="
-echo "HATA KONTROLÜ (Loglar):"
-echo "=============================================="
-echo "Rclone mount log:  sudo journalctl -u rclone-mount-obs -n 10 --no-pager"
-echo "Samba log:         sudo journalctl -u smbd -n 10 --no-pager"
-echo "Docker log:        docker compose logs --tail=10"
+echo "📁 Mount Dizini: $MOUNT_PATH"
 echo "=============================================="
