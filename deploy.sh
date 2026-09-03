@@ -5,29 +5,84 @@ echo "=============================================="
 echo "PACS Gateway - One-Click Deployment"
 echo "=============================================="
 
-# Değişkenleri sor
-read -p "Huawei OBS Access Key: " ACCESS_KEY
-read -sp "Huawei OBS Secret Key: " SECRET_KEY
-echo
-read -p "OBS Endpoint (örn: obs.tr-west-1.myhuaweicloud.com): " ENDPOINT
-read -p "OBS Bucket Adı: " BUCKET_NAME
-read -p "Samba Kullanıcı Adı (varsayılan: pacsuser): " SMB_USER
-SMB_USER=${SMB_USER:-pacsuser}
-read -sp "Samba Şifresi (varsayılan: 1Huawei9): " SMB_PASS
-SMB_PASS=${SMB_PASS:-1Huawei9}
-echo
-read -p "SMTP Mail Adresi: " SMTP_MAIL
-read -sp "SMTP Uygulama Şifresi: " SMTP_PASS
-echo
-read -p "Alert E-posta Adresi: " ALERT_MAIL
+# ============================================
+# 1. DOCKER ve DOCKER COMPOSE KURULUMU
+# ============================================
+if ! command -v docker &> /dev/null; then
+    echo "Docker kurulu değil, kuruluyor..."
+    sudo apt update
+    sudo apt install -y ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt update
+    sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    sudo systemctl enable docker
+    sudo systemctl start docker
+    echo "Docker kurulumu tamamlandı."
+else
+    echo "Docker zaten kurulu."
+fi
+
+# ============================================
+# 2. KULLANICIDAN BİLGİLERİ AL (ZORUNLU)
+# ============================================
+while [[ -z "$ACCESS_KEY" ]]; do
+    read -p "Huawei OBS Access Key: " ACCESS_KEY
+done
+
+while [[ -z "$SECRET_KEY" ]]; do
+    read -sp "Huawei OBS Secret Key: " SECRET_KEY
+    echo
+done
+
+while [[ -z "$ENDPOINT" ]]; do
+    read -p "OBS Endpoint (örn: obs.tr-west-1.myhuaweicloud.com): " ENDPOINT
+done
+
+while [[ -z "$BUCKET_NAME" ]]; do
+    read -p "OBS Bucket Adı: " BUCKET_NAME
+done
+
+while [[ -z "$SMB_USER" ]]; do
+    read -p "Samba Kullanıcı Adı (örn: pacsuser): " SMB_USER
+done
+
+while [[ -z "$SMB_PASS" ]]; do
+    read -sp "Samba Şifresi: " SMB_PASS
+    echo
+done
+
+while [[ -z "$SMTP_MAIL" ]]; do
+    read -p "SMTP Mail Adresi: " SMTP_MAIL
+done
+
+while [[ -z "$SMTP_PASS" ]]; do
+    read -sp "SMTP Uygulama Şifresi: " SMTP_PASS
+    echo
+done
+
+while [[ -z "$ALERT_MAIL" ]]; do
+    read -p "Alert E-posta Adresi: " ALERT_MAIL
+done
+
 read -p "Mount Dizini (varsayılan: /mnt/pacs-hot/archive): " MOUNT_PATH
 MOUNT_PATH=${MOUNT_PATH:-/mnt/pacs-hot/archive}
 
-# Dizinleri oluştur
+# ============================================
+# 3. DİZİNLERİ OLUŞTUR
+# ============================================
 sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,prometheus,alertmanager,grafana/dashboards,systemd,logs}
+sudo mkdir -p "$MOUNT_PATH"
+sudo chown -R root:root "$MOUNT_PATH"
+sudo chmod 755 "$MOUNT_PATH"
+
 cd /opt/pacs-gateway
 
-# Rclone config oluştur
+# ============================================
+# 4. RCLONE CONFIG
+# ============================================
 cat > config/rclone.conf <<EOF
 [obs]
 type = s3
@@ -41,7 +96,9 @@ EOF
 sudo cp config/rclone.conf /etc/rclone/rclone.conf
 sudo chmod 600 /etc/rclone/rclone.conf
 
-# Prometheus config
+# ============================================
+# 5. PROMETHEUS CONFIG
+# ============================================
 cat > prometheus/prometheus.yml <<EOF
 global:
   scrape_interval: 15s
@@ -64,7 +121,9 @@ scrape_configs:
       - targets: ['node-exporter:9100']
 EOF
 
-# Alert rules
+# ============================================
+# 6. ALARM KURALLARI
+# ============================================
 cat > prometheus/alert.rules.yml <<'EOF'
 groups:
   - name: pacs_alerts
@@ -103,7 +162,9 @@ groups:
           description: "Disk alanı kritik seviyede. Hemen müdahale edin."
 EOF
 
-# Alertmanager config
+# ============================================
+# 7. ALERTMANAGER CONFIG
+# ============================================
 cat > alertmanager/alertmanager.yml <<EOF
 global:
   resolve_timeout: 5m
@@ -127,7 +188,9 @@ receivers:
           Subject: '[PACS-ALERT] {{ .GroupLabels.alertname }}'
 EOF
 
-# Grafana config
+# ============================================
+# 8. GRAFANA CONFIG
+# ============================================
 cat > grafana/grafana.ini <<EOF
 [paths]
 data = /var/lib/grafana
@@ -145,7 +208,9 @@ from_address = $SMTP_MAIL
 from_name = PACS Grafana Alarm
 EOF
 
-# Docker Compose dosyası
+# ============================================
+# 9. DOCKER COMPOSE DOSYASI
+# ============================================
 cat > docker-compose.yml <<'EOF'
 services:
   node-exporter:
@@ -208,18 +273,112 @@ volumes:
   grafana_data:
 EOF
 
-# Systemd servisleri
+# ============================================
+# 10. SYSTEMD SERVİSLERİ
+# ============================================
+mkdir -p /opt/pacs-gateway/systemd
+
+cat > /opt/pacs-gateway/systemd/rclone-rcd.service <<'EOF'
+[Unit]
+Description=Rclone Remote Control Daemon
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/rclone rcd \
+  --rc-addr=0.0.0.0:5572 \
+  --rc-user=monitor \
+  --rc-pass=1Huawei9 \
+  --rc-enable-metrics \
+  --rc-web-gui
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /opt/pacs-gateway/systemd/rclone-mount-obs.service <<EOF
+[Unit]
+Description=Rclone Mount OBS
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${MOUNT_PATH} \
+  --config /etc/rclone/rclone.conf \
+  --allow-other \
+  --vfs-cache-mode full \
+  --vfs-cache-max-age 720h \
+  --vfs-cache-max-size 100G \
+  --dir-cache-time 168h \
+  --buffer-size 256M
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 sudo cp /opt/pacs-gateway/systemd/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable rclone-rcd rclone-mount-obs
+
+# ============================================
+# 11. SAMBA KULLANICISI OLUŞTUR
+# ============================================
+sudo useradd -M -s /sbin/nologin "$SMB_USER" 2>/dev/null || true
+echo -e "$SMB_PASS\n$SMB_PASS" | sudo smbpasswd -a -s "$SMB_USER"
+
+# Samba yapılandırması
+sudo tee /etc/samba/smb.conf > /dev/null <<EOF
+[global]
+   server min protocol = SMB2
+   server max protocol = SMB3
+   client min protocol = SMB2
+   client max protocol = SMB3
+   workgroup = PACS
+   interfaces = 0.0.0.0/0
+   bind interfaces only = no
+
+[PACS_Archive]
+   path = ${MOUNT_PATH}
+   browseable = yes
+   read only = no
+   guest ok = no
+   valid users = $SMB_USER
+   force user = $SMB_USER
+   create mask = 0644
+   directory mask = 0755
+EOF
+
+# Samba servisini başlat
+sudo systemctl enable smbd
+sudo systemctl restart smbd
+
+# ============================================
+# 12. RCLONE SERVİSLERİNİ BAŞLAT
+# ============================================
 sudo systemctl start rclone-rcd rclone-mount-obs
 
-# Docker compose başlat
+# ============================================
+# 13. DOCKER COMPOSE BAŞLAT
+# ============================================
 sudo docker compose up -d
 
+# ============================================
+# 14. KURULUM TAMAMLANDI
+# ============================================
+echo ""
 echo "=============================================="
 echo "Kurulum tamamlandı!"
+echo "=============================================="
 echo "SMB Paylaşımı: \\\\$(hostname -I | awk '{print $1}')\\PACS_Archive"
+echo "   Kullanıcı: $SMB_USER"
+echo "   Şifre: (girilen şifre)"
+echo ""
 echo "Grafana: http://$(hostname -I | awk '{print $1}'):3000 (admin/admin)"
 echo "Prometheus: http://$(hostname -I | awk '{print $1}'):9090"
 echo "=============================================="
