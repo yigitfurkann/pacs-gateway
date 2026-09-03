@@ -3,7 +3,7 @@ global:
   smtp_smarthost: 'smtp.gmail.com:587'
   smtp_from: 'ygtfurkan2019@gmail.com'
   smtp_auth_username: 'ygtfurkan2019@gmail.com'
-  smtp_auth_password: 'usxaqzgvixnvezzy'
+  smtp_auth_password: 'password'
   smtp_require_tls: true
 route:
   group_by: ['alertname', 'severity']
@@ -14,7 +14,7 @@ route:
 receivers:
   - name: 'email-admin'
     email_configs:
-      - to: 'operations@clous.cloud'
+      - to: ''
         send_resolved: true
         headers:
           Subject: '[PACS-ALERT] {{ .GroupLabels.alertname }}'
