@@ -2,18 +2,15 @@
 set -e
 
 echo "=============================================="
-echo "PACS Gateway v2 - Staged Upload Architecture"
+echo "PACS Gateway - One-Click Deployment"
 echo "=============================================="
+
 echo "   ██████╗██╗      ██████╗ ██╗   ██╗███████╗"
 echo "  ██╔════╝██║     ██╔═══██╗██║   ██║██╔════╝"
 echo "  ██║     ██║     ██║   ██║██║   ██║███████╗"
 echo "  ██║     ██║     ██║   ██║██║   ██║╚════██║"
 echo "  ╚██████╗███████╗╚██████╔╝╚██████╔╝███████║"
 echo "   ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚══════╝"
-echo ""
-echo "Mimari: Fuji/PACS -SMB-> yerel disk -inotify-> OBS (tek yönlü)"
-echo "        Doktorlar <-SMB- read-only cache-first mount <- OBS"
-echo "=============================================="
 
 # ============================================
 # 0. PUBLIC ve PRIVATE IP'Yİ AL
@@ -42,15 +39,6 @@ if ! command -v docker &> /dev/null; then
     echo "Docker kurulumu tamamlandı."
 else
     echo "Docker zaten kurulu."
-fi
-
-# ============================================
-# 1.1 inotify-tools KURULUMU
-# ============================================
-if ! command -v inotifywait &> /dev/null; then
-    echo "inotify-tools kurulu değil, kuruluyor..."
-    sudo apt update
-    sudo apt install -y inotify-tools
 fi
 
 # ============================================
@@ -130,19 +118,59 @@ while [[ -z "$RC_PASS" ]]; do
     echo
 done
 
-read -p "Staging (yazılabilir) Dizin [varsayılan: /mnt/pacs-hot/local]: " LOCAL_PATH
-LOCAL_PATH=${LOCAL_PATH:-/mnt/pacs-hot/local}
+read -p "Mount Dizini (varsayılan: /mnt/pacs-hot/archive): " MOUNT_PATH
+MOUNT_PATH=${MOUNT_PATH:-/mnt/pacs-hot/archive}
+if [[ ! "$MOUNT_PATH" =~ ^/ ]]; then
+    MOUNT_PATH="/$MOUNT_PATH"
+    echo "⚠️  Mount dizini '/' ile düzeltildi: $MOUNT_PATH"
+fi
 
-read -p "Arşiv (read-only, OBS mount) Dizin [varsayılan: /mnt/pacs-hot/archive-ro]: " RO_MOUNT_PATH
-RO_MOUNT_PATH=${RO_MOUNT_PATH:-/mnt/pacs-hot/archive-ro}
+# ============================================
+# 2.1 DİNAMİK PARAMETRELER (DETAYLI AÇIKLAMALI)
+# ============================================
+echo ""
+echo "📦 VFS CACHE SÜRESİ AYARI:"
+echo "   Dosyaların yerel diskte ne kadar süre tutulacağını belirler."
+echo "   Süre dolunca dosya yerel diskten silinir ama OBS'te kalır."
+echo "   Kullanıcı dosyaya tıkladığında OBS'ten tekrar indirilir."
+echo "   Birimler: d = gün, h = saat, m = dakika"
+echo "   Örnekler: 720h (30 gün - prod), 3h (3 saat - test), 30m (30 dakika - hızlı test)"
+read -p "VFS Cache Süresi (varsayılan: 720h): " VFS_CACHE_AGE_RAW
+VFS_CACHE_AGE=${VFS_CACHE_AGE_RAW:-720h}
+if [[ ! "$VFS_CACHE_AGE" =~ (s|m|h|d)$ ]]; then
+  echo "⚠️  Birim belirtilmedi, saat (h) varsayılıyor."
+  VFS_CACHE_AGE="${VFS_CACHE_AGE}h"
+fi
 
 echo ""
-echo "📦 Yerelden silme eşiği (staging dizinindeki dosyalar OBS'e yüklendikten"
-echo "   şu kadar süre sonra yerelden silinir). Birimler: h=saat, d=gün"
-echo "   Test için: 3h  |  Prod için: 168h (7 gün) önerilir."
-read -p "Silme Eşiği [varsayılan: 3h]: " MAX_AGE_RAW
-MAX_AGE_RAW=${MAX_AGE_RAW:-3h}
-MAX_AGE_HOURS=$(echo "$MAX_AGE_RAW" | sed -E 's/([0-9]+)h/\1/; s/([0-9]+)d/\1*24/' | bc 2>/dev/null || echo "3")
+echo "📦 VFS CACHE BOYUTU AYARI:"
+echo "   Yerel diskin en fazla ne kadarını cache için kullanacağını belirler."
+echo "   Örnekler: 100G, 500G, 1T"
+read -p "VFS Cache Max Boyut (varsayılan: 100G): " VFS_CACHE_SIZE
+VFS_CACHE_SIZE=${VFS_CACHE_SIZE:-100G}
+
+echo ""
+echo "=============================================="
+echo "🔐 ADIM ADIM DOSYA İZİN AYARLARI"
+echo "=============================================="
+echo "Lütfen aşağıdaki 3 soruyu SIRAYLA cevaplayın."
+echo "Virgül veya boşluk kullanmayın, sadece rakamları yazın."
+echo ""
+echo "Linux İzin Kodları: 4=Oku, 2=Yaz, 1=Çalıştır"
+echo "  Örnek: 0777 -> Sahip(rwx), Grup(rwx), Diğerleri(r-x)"
+echo "  Örnek: 0666 -> Sahip(rw-), Grup(rw-), Diğerleri(r--)"
+echo ""
+
+read -p "1) Dizin İzni (örn: 0777) [varsayılan: 0777]: " DIR_PERMS
+DIR_PERMS=${DIR_PERMS:-0777}
+
+read -p "2) Dosya İzni (örn: 0666) [varsayılan: 0666]: " FILE_PERMS
+FILE_PERMS=${FILE_PERMS:-0666}
+
+echo "Umask: Yeni oluşturulan dosyaların iznini kısıtlar."
+echo "  0 = Hiç kısıtlama yok, 022 = Klasik kısıtlama"
+read -p "3) Umask (örn: 0) [varsayılan: 0]: " UMASK_VAL
+UMASK_VAL=${UMASK_VAL:-0}
 
 # ============================================
 # 3. PORT KONTROLLERİ
@@ -164,6 +192,8 @@ done
 if [[ $PORT_ERROR -eq 1 ]]; then
     echo ""
     echo "❌ Bazı portlar zaten kullanımda!"
+    echo "Lütfen aşağıdaki komutla hangi servislerin bu portları kullandığını kontrol edin:"
+    echo "  sudo ss -tlnp | grep -E ':(139|445|3000|5572|9090|9100|9393)'"
     read -p "Devam etmek istiyor musunuz? (y/N): " CONTINUE
     if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
         echo "Kurulum iptal edildi."
@@ -187,8 +217,8 @@ fi
 # ============================================
 echo ""
 echo "📁 Dizinler oluşturuluyor..."
-sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,scripts,prometheus,alertmanager,grafana/dashboards,systemd,logs,state/uploaded}
-sudo mkdir -p "$LOCAL_PATH" "$RO_MOUNT_PATH"
+sudo mkdir -p /etc/rclone /opt/pacs-gateway/{config,prometheus,alertmanager,grafana/dashboards,systemd,logs}
+sudo mkdir -p "$MOUNT_PATH"
 
 cd /opt/pacs-gateway
 
@@ -210,78 +240,7 @@ sudo cp config/rclone.conf /etc/rclone/rclone.conf
 sudo chmod 600 /etc/rclone/rclone.conf
 
 # ============================================
-# 6. UPLOAD WATCHER + CLEANUP SCRIPTLERİ
-# ============================================
-echo "📝 Upload watcher ve cleanup scriptleri yazılıyor..."
-cat > scripts/upload-watcher.sh <<'SCRIPTEOF'
-#!/bin/bash
-set -u
-LOCAL_DIR="${LOCAL_DIR:-/mnt/pacs-hot/local}"
-BUCKET_NAME="${BUCKET_NAME:-YOUR_BUCKET}"
-RCLONE_CONF="${RCLONE_CONF:-/etc/rclone/rclone.conf}"
-LOG_FILE="${LOG_FILE:-/opt/pacs-gateway/logs/upload-watcher.log}"
-STATE_DIR="${STATE_DIR:-/opt/pacs-gateway/state/uploaded}"
-mkdir -p "$STATE_DIR" "$(dirname "$LOG_FILE")"
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $1" | tee -a "$LOG_FILE"; }
-log "🚀 Upload watcher başlatıldı: $LOCAL_DIR izleniyor -> obs:${BUCKET_NAME}"
-inotifywait -m -r -e close_write --format '%w%f' "$LOCAL_DIR" | while read -r FILEPATH
-do
-    FILENAME=$(basename "$FILEPATH")
-    case "$FILENAME" in
-        .*|*.tmp|*.partial|~*) log "⏭️  Geçici dosya atlandı: $FILEPATH"; continue ;;
-    esac
-    if [[ ! -f "$FILEPATH" ]]; then
-        log "⚠️  Dosya bulunamadı: $FILEPATH"; continue
-    fi
-    RELATIVE_PATH="${FILEPATH#$LOCAL_DIR/}"
-    REMOTE_PATH="obs:${BUCKET_NAME}/${RELATIVE_PATH}"
-    MARKER_FILE="${STATE_DIR}/${RELATIVE_PATH//\//__}.uploaded"
-    if rclone lsf "$REMOTE_PATH" --config "$RCLONE_CONF" &>/dev/null; then
-        log "⚠️  ÇAKIŞMA: $REMOTE_PATH zaten OBS'te mevcut. Yükleme ATLANDI."
-        continue
-    fi
-    log "📤 Yükleniyor: $FILEPATH -> $REMOTE_PATH"
-    if rclone copyto "$FILEPATH" "$REMOTE_PATH" --config "$RCLONE_CONF" --log-level INFO --log-file "$LOG_FILE"; then
-        mkdir -p "$(dirname "$MARKER_FILE")"
-        date -u +"%Y-%m-%dT%H:%M:%SZ" > "$MARKER_FILE"
-        log "✅ Yükleme tamamlandı: $RELATIVE_PATH"
-    else
-        log "❌ Yükleme BAŞARISIZ: $RELATIVE_PATH"
-    fi
-done
-SCRIPTEOF
-
-cat > scripts/cleanup-old.sh <<'SCRIPTEOF'
-#!/bin/bash
-set -u
-LOCAL_DIR="${LOCAL_DIR:-/mnt/pacs-hot/local}"
-STATE_DIR="${STATE_DIR:-/opt/pacs-gateway/state/uploaded}"
-LOG_FILE="${LOG_FILE:-/opt/pacs-gateway/logs/cleanup.log}"
-MAX_AGE_HOURS="${MAX_AGE_HOURS:-3}"
-mkdir -p "$(dirname "$LOG_FILE")"
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $1" | tee -a "$LOG_FILE"; }
-log "🧹 Cleanup başladı (eşik: ${MAX_AGE_HOURS} saat)"
-find "$STATE_DIR" -type f -name "*.uploaded" -mmin "+$((MAX_AGE_HOURS * 60))" 2>/dev/null | while read -r MARKER
-do
-    RELATIVE_PATH=$(basename "$MARKER" .uploaded)
-    RELATIVE_PATH="${RELATIVE_PATH//__//}"
-    LOCAL_FILE="${LOCAL_DIR}/${RELATIVE_PATH}"
-    if [[ -f "$LOCAL_FILE" ]]; then
-        rm -f "$LOCAL_FILE"
-        log "🗑️  Silindi (OBS'te güvende): $LOCAL_FILE"
-    else
-        log "ℹ️  Zaten yok: $LOCAL_FILE"
-    fi
-    rm -f "$MARKER"
-done
-find "$LOCAL_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null
-log "✅ Cleanup tamamlandı"
-SCRIPTEOF
-
-chmod +x scripts/upload-watcher.sh scripts/cleanup-old.sh
-
-# ============================================
-# 7. PROMETHEUS CONFIG
+# 6. PROMETHEUS CONFIG
 # ============================================
 echo "📝 Prometheus config oluşturuluyor..."
 cat > prometheus/prometheus.yml <<EOF
@@ -307,7 +266,7 @@ scrape_configs:
 EOF
 
 # ============================================
-# 8. ALARM KURALLARI
+# 7. ALARM KURALLARI
 # ============================================
 echo "📝 Alarm kuralları oluşturuluyor..."
 cat > prometheus/alert.rules.yml <<'EOF'
@@ -320,8 +279,8 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "Rclone RC servisi çöktü!"
-          description: "RC API yanıt vermiyor."
+          summary: "Rclone servisi çöktü!"
+          description: "RC API yanıt vermiyor. OBS erişimi kesildi."
       - alert: SambaServiceDown
         expr: up{job="samba"} == 0
         for: 1m
@@ -330,14 +289,14 @@ groups:
         annotations:
           summary: "Samba servisi çalışmıyor!"
           description: "Windows client'lar paylaşıma erişemiyor."
-      - alert: HotStorageDiskSpaceWarning
-        expr: (node_filesystem_avail_bytes{mountpoint="/mnt/pacs-hot"} / node_filesystem_size_bytes{mountpoint="/mnt/pacs-hot"} * 100) < 20
+      - alert: RcloneTransferStalled
+        expr: rate(rclone_bytes_transferred_total[5m]) == 0 and rclone_active_transfers > 0
         for: 5m
         labels:
-          severity: warning
+          severity: critical
         annotations:
-          summary: "Hot disk %80 dolu (uyarı)"
-          description: "Staging alanı doluyor."
+          summary: "Transfer kilitlendi!"
+          description: "Aktif transfer olmasına rağmen 5 dakikadır veri akışı 0 B/s."
       - alert: HotStorageDiskSpaceCritical
         expr: (node_filesystem_avail_bytes{mountpoint="/mnt/pacs-hot"} / node_filesystem_size_bytes{mountpoint="/mnt/pacs-hot"} * 100) < 10
         for: 5m
@@ -345,11 +304,11 @@ groups:
           severity: critical
         annotations:
           summary: "Hot disk %90 dolu!"
-          description: "Upload-watcher ve cleanup'ı kontrol edin."
+          description: "Disk alanı kritik seviyede. Hemen müdahale edin."
 EOF
 
 # ============================================
-# 9. ALERTMANAGER CONFIG
+# 8. ALERTMANAGER CONFIG
 # ============================================
 echo "📝 Alertmanager config oluşturuluyor..."
 cat > alertmanager/alertmanager.yml <<EOF
@@ -376,7 +335,7 @@ receivers:
 EOF
 
 # ============================================
-# 10. GRAFANA CONFIG
+# 9. GRAFANA CONFIG
 # ============================================
 echo "📝 Grafana config oluşturuluyor..."
 cat > grafana/grafana.ini <<EOF
@@ -397,7 +356,7 @@ from_name = PACS Grafana Alarm
 EOF
 
 # ============================================
-# 11. DOCKER COMPOSE
+# 10. DOCKER COMPOSE DOSYASI
 # ============================================
 echo "📝 Docker Compose dosyası oluşturuluyor..."
 cat > docker-compose.yml <<'EOF'
@@ -465,10 +424,12 @@ volumes:
 EOF
 
 # ============================================
-# 12. SYSTEMD: RCLONE RC (metrics)
+# 11. SYSTEMD SERVİSLERİ (Rclone RC)
 # ============================================
-echo "📝 Rclone RC systemd servisi oluşturuluyor..."
-cat > /etc/systemd/system/rclone-rcd.service <<EOF
+echo "📝 Systemd servisleri oluşturuluyor..."
+mkdir -p /opt/pacs-gateway/systemd
+
+cat > /opt/pacs-gateway/systemd/rclone-rcd.service <<EOF
 [Unit]
 Description=Rclone Remote Control Daemon
 After=network-online.target
@@ -489,19 +450,16 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+sudo cp /opt/pacs-gateway/systemd/rclone-rcd.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable rclone-rcd
-sudo systemctl start rclone-rcd
 
 # ============================================
-# 13. SAMBA KULLANICISI OLUŞTUR
+# 12. SAMBA KULLANICISI OLUŞTUR ve RCLONE MONTE ET (DİNAMİK)
 # ============================================
 echo "👤 Samba kullanıcısı oluşturuluyor..."
 sudo useradd -M -s /sbin/nologin "$SMB_USER" 2>/dev/null || true
 echo -e "$SMB_PASS\n$SMB_PASS" | sudo smbpasswd -a -s "$SMB_USER"
-
-SMB_UID=$(id -u "$SMB_USER")
-SMB_GID=$(id -g "$SMB_USER")
 
 sudo tee /etc/samba/smb.conf > /dev/null <<EOF
 [global]
@@ -513,105 +471,48 @@ sudo tee /etc/samba/smb.conf > /dev/null <<EOF
    interfaces = 0.0.0.0/0
    bind interfaces only = no
 
-[PACS_Local]
-   path = ${LOCAL_PATH}
+[PACS_Archive]
+   path = ${MOUNT_PATH}
    browseable = yes
    read only = no
    guest ok = no
    valid users = $SMB_USER
    force user = $SMB_USER
-   force group = $SMB_USER
    create mask = 0666
    directory mask = 0777
-
-[PACS_Archive]
-   path = ${RO_MOUNT_PATH}
-   browseable = yes
-   read only = yes
-   guest ok = no
-   valid users = $SMB_USER
-   force user = $SMB_USER
-   force group = $SMB_USER
 EOF
 
 sudo systemctl enable smbd
 sudo systemctl restart smbd
 
-sudo chown -R "$SMB_USER:$SMB_USER" "$LOCAL_PATH"
-sudo chmod -R 0775 "$LOCAL_PATH"
+# --- KRİTİK DÜZELTME: Dinamik Cache ve İzin Ayarları ---
+SMB_UID=$(id -u "$SMB_USER")
+SMB_GID=$(id -g "$SMB_USER")
 
-# ============================================
-# 14. SYSTEMD: UPLOAD WATCHER
-# ============================================
-echo "📝 Upload watcher systemd servisi oluşturuluyor..."
-sudo cp /opt/pacs-gateway/scripts/upload-watcher.sh /opt/pacs-gateway/scripts/upload-watcher.sh
-sudo chmod +x /opt/pacs-gateway/scripts/upload-watcher.sh
+echo "Rclone mount servisi, ${SMB_USER} (UID: ${SMB_UID}, GID: ${SMB_GID}) için yapılandırılıyor..."
+echo "🔧 Cache: $VFS_CACHE_AGE / $VFS_CACHE_SIZE | İzinler: D=$DIR_PERMS F=$FILE_PERMS U=$UMASK_VAL"
 
-cat > /etc/systemd/system/pacs-upload-watcher.service <<EOF
+cat > /etc/systemd/system/rclone-mount-obs.service <<EOF
 [Unit]
-Description=PACS Upload Watcher (inotify close_write -> OBS)
+Description=Rclone Mount OBS
 After=network-online.target
 
 [Service]
 Type=simple
 User=root
-Environment=LOCAL_DIR=${LOCAL_PATH}
-Environment=BUCKET_NAME=${BUCKET_NAME}
-Environment=RCLONE_CONF=/etc/rclone/rclone.conf
-Environment=LOG_FILE=/opt/pacs-gateway/logs/upload-watcher.log
-Environment=STATE_DIR=/opt/pacs-gateway/state/uploaded
-ExecStart=/opt/pacs-gateway/scripts/upload-watcher.sh
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable pacs-upload-watcher
-sudo systemctl start pacs-upload-watcher
-
-# ============================================
-# 15. CRON: CLEANUP
-# ============================================
-echo "📝 Cleanup cron job'ı kuruluyor..."
-sudo chmod +x /opt/pacs-gateway/scripts/cleanup-old.sh
-sudo tee /etc/cron.d/pacs-cleanup > /dev/null <<EOF
-*/10 * * * * root LOCAL_DIR=${LOCAL_PATH} STATE_DIR=/opt/pacs-gateway/state/uploaded LOG_FILE=/opt/pacs-gateway/logs/cleanup.log MAX_AGE_HOURS=${MAX_AGE_HOURS} /opt/pacs-gateway/scripts/cleanup-old.sh
-EOF
-sudo chmod 644 /etc/cron.d/pacs-cleanup
-
-# ============================================
-# 16. SYSTEMD: READ-ONLY RCLONE MOUNT (Doktor/Fuji erişimi)
-# ============================================
-echo "📝 Read-only rclone mount servisi oluşturuluyor (cache-first)..."
-cat > /etc/systemd/system/rclone-mount-obs-readonly.service <<EOF
-[Unit]
-Description=Rclone Mount OBS (READ-ONLY - Fuji/Doktor Erişimi)
-After=network-online.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${RO_MOUNT_PATH} \
+ExecStart=/usr/bin/rclone mount obs:${BUCKET_NAME} ${MOUNT_PATH} \
   --config /etc/rclone/rclone.conf \
   --allow-other \
-  --read-only \
-  --uid ${SMB_UID} \
-  --gid ${SMB_GID} \
-  --dir-perms 0555 \
-  --file-perms 0444 \
+  --uid $SMB_UID \
+  --gid $SMB_GID \
+  --dir-perms $DIR_PERMS \
+  --file-perms $FILE_PERMS \
+  --umask $UMASK_VAL \
   --vfs-cache-mode full \
-  --vfs-cache-max-age 720h \
-  --vfs-cache-max-size 50G \
-  --vfs-read-chunk-size 128M \
-  --vfs-read-chunk-size-limit 1G \
+  --vfs-cache-max-age $VFS_CACHE_AGE \
+  --vfs-cache-max-size $VFS_CACHE_SIZE \
   --dir-cache-time 168h \
-  --buffer-size 256M \
-  --log-level INFO \
-  --log-file /opt/pacs-gateway/logs/rclone-mount-ro.log
-ExecStop=/bin/fusermount -uz ${RO_MOUNT_PATH}
+  --buffer-size 256M
 Restart=always
 RestartSec=10
 
@@ -619,18 +520,27 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
+# Mount dizininin sahipliğini SMB kullanıcısına ver
+sudo chown -R "$SMB_USER:$SMB_USER" "$MOUNT_PATH"
+sudo chmod -R "$DIR_PERMS" "$MOUNT_PATH"
+
 sudo systemctl daemon-reload
-sudo systemctl enable rclone-mount-obs-readonly
-sudo systemctl start rclone-mount-obs-readonly
+sudo systemctl enable rclone-mount-obs
 
 # ============================================
-# 17. DOCKER COMPOSE BAŞLAT
+# 13. RCLONE SERVİSLERİNİ BAŞLAT
+# ============================================
+echo "🚀 Rclone servisleri başlatılıyor..."
+sudo systemctl start rclone-rcd rclone-mount-obs
+
+# ============================================
+# 14. DOCKER COMPOSE BAŞLAT
 # ============================================
 echo "🐳 Docker Compose başlatılıyor..."
 sudo docker compose up -d
 
 # ============================================
-# 18. KURULUM SONRASI KONTROLLER
+# 15. KURULUM SONRASI KONTROLLER
 # ============================================
 echo ""
 echo "🔍 Kurulum sonrası kontroller yapılıyor..."
@@ -638,37 +548,45 @@ echo "🔍 Kurulum sonrası kontroller yapılıyor..."
 if curl -s -u ${RC_USER}:${RC_PASS} http://localhost:5572/metrics > /dev/null 2>&1; then
     echo "✅ Rclone RC API çalışıyor."
 else
-    echo "❌ Rclone RC API çalışmıyor! sudo journalctl -u rclone-rcd -f"
+    echo "❌ Rclone RC API çalışmıyor! Logları kontrol edin: sudo journalctl -u rclone-rcd -f"
 fi
 
-if sudo systemctl is-active --quiet pacs-upload-watcher; then
-    echo "✅ Upload watcher çalışıyor."
+if mount | grep -q "$MOUNT_PATH"; then
+    echo "✅ Rclone mount başarılı."
 else
-    echo "❌ Upload watcher çalışmıyor! sudo journalctl -u pacs-upload-watcher -f"
-fi
-
-if mount | grep -q "$RO_MOUNT_PATH"; then
-    echo "✅ Read-only OBS mount başarılı."
-else
-    echo "❌ Read-only mount başarısız! sudo journalctl -u rclone-mount-obs-readonly -f"
+    echo "❌ Rclone mount başarısız! Logları kontrol edin: sudo journalctl -u rclone-mount-obs -f"
 fi
 
 if sudo systemctl is-active --quiet smbd; then
     echo "✅ Samba servisi çalışıyor."
 else
-    echo "❌ Samba servisi çalışmıyor! sudo journalctl -u smbd -f"
+    echo "❌ Samba servisi çalışmıyor! Logları kontrol edin: sudo journalctl -u smbd -f"
 fi
 
-for c in pacs-prometheus pacs-grafana pacs-alertmanager; do
-    if docker ps | grep -q "$c"; then
-        echo "✅ $c çalışıyor."
+if docker ps | grep -q "pacs-prometheus"; then
+    echo "✅ Prometheus çalışıyor."
+else
+    echo "❌ Prometheus çalışmıyor! Logları kontrol edin: docker logs pacs-prometheus"
+fi
+
+if docker ps | grep -q "pacs-grafana"; then
+    echo "✅ Grafana çalışıyor."
+else
+    echo "❌ Grafana çalışmıyor! Logları kontrol edin: docker logs pacs-grafana"
+fi
+
+if docker ps | grep -q "pacs-alertmanager"; then
+    if curl -s http://localhost:9393 > /dev/null 2>&1; then
+        echo "✅ Alertmanager UI çalışıyor."
     else
-        echo "❌ $c çalışmıyor! docker logs $c"
+        echo "❌ Alertmanager UI çalışmıyor! Logları kontrol edin: docker logs pacs-alertmanager"
     fi
-done
+else
+    echo "❌ Alertmanager container'ı çalışmıyor!"
+fi
 
 # ============================================
-# 19. KURULUM TAMAMLANDI
+# 16. KURULUM TAMAMLANDI
 # ============================================
 echo ""
 echo "=============================================="
@@ -678,37 +596,36 @@ echo ""
 echo "📌 Erişim Bilgileri:"
 echo "   Private IP: $PRIVATE_IP"
 echo "   Public IP: $PUBLIC_IP"
-echo ""
-echo "   📤 Fuji/PACS YAZMA paylaşımı: \\\\$PUBLIC_IP\\PACS_Local"
-echo "   📥 Doktor OKUMA paylaşımı (read-only): \\\\$PUBLIC_IP\\PACS_Archive"
+echo "   SMB Paylaşımı: \\\\$PUBLIC_IP\\PACS_Archive"
 echo "   SMB Kullanıcı: $SMB_USER"
+echo "   SMB Şifre: (girilen şifre)"
 echo ""
-echo "   Grafana: http://$PUBLIC_IP:3000 (admin/admin)"
+echo "   Grafana: http://$PUBLIC_IP:3000 (Kullanıcı: admin | Şifre: admin)"
 echo "   Prometheus: http://$PUBLIC_IP:9090"
-echo "   Rclone Web GUI: http://$PUBLIC_IP:5572 ($RC_USER/****)"
+echo "   Rclone Web GUI: http://$PUBLIC_IP:5572 ($RC_USER/$RC_PASS)"
 echo "   Alertmanager: http://$PUBLIC_IP:9393"
 echo ""
 echo "📋 Servis Yönetimi:"
-echo "   sudo systemctl status pacs-upload-watcher rclone-mount-obs-readonly rclone-rcd smbd"
-echo "   cd /opt/pacs-gateway && docker compose ps"
+echo "   Systemd: sudo systemctl status rclone-mount-obs rclone-rcd smbd"
+echo "   Docker: cd /opt/pacs-gateway && docker compose ps"
 echo ""
-echo "📁 Staging (yazılabilir): $LOCAL_PATH"
-echo "📁 Arşiv (read-only, OBS cache-first): $RO_MOUNT_PATH"
-echo "🕒 Yerelden silme eşiği: ${MAX_AGE_HOURS} saat (OBS'e yüklendikten sonra)"
+echo "📁 Mount Dizini: $MOUNT_PATH"
+echo "📦 VFS Cache Süresi: $VFS_CACHE_AGE"
+echo "📦 VFS Cache Boyutu: $VFS_CACHE_SIZE"
+echo "🔐 İzinler: Dizin=$DIR_PERMS, Dosya=$FILE_PERMS, Umask=$UMASK_VAL"
 echo ""
 echo "📝 HATA KONTROLÜ (Loglar):"
-echo "   Upload watcher: tail -f /opt/pacs-gateway/logs/upload-watcher.log"
-echo "   Cleanup:        tail -f /opt/pacs-gateway/logs/cleanup.log"
-echo "   RO mount:       sudo journalctl -u rclone-mount-obs-readonly -f"
-echo "   Samba:          sudo journalctl -u smbd -f"
-echo "=============================================="
+echo "   Rclone mount: sudo journalctl -u rclone-mount-obs -n 10 --no-pager"
+echo "   Samba:        sudo journalctl -u smbd -n 10 --no-pager"
+echo "   Docker:       cd /opt/pacs-gateway && docker compose logs --tail=10"
+echo ""
+echo ""
 echo "   ██████╗██╗      ██████╗ ██╗   ██╗███████╗"
 echo "  ██╔════╝██║     ██╔═══██╗██║   ██║██╔════╝"
 echo "  ██║     ██║     ██║   ██║██║   ██║███████╗"
 echo "  ██║     ██║     ██║   ██║██║   ██║╚════██║"
 echo "  ╚██████╗███████╗╚██████╔╝╚██████╔╝███████║"
 echo "   ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚══════╝"
-echo ""
 echo "=============================================="
 echo "   🚀 Developed by Furkan YIGIT | Cloud Solution Architect | Clous Cloud"
 echo "=============================================="
