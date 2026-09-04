@@ -53,7 +53,6 @@ while [[ -z "$SECRET_KEY" ]]; do
     echo
 done
 
-# Region seçimi
 echo ""
 echo "📍 OBS Region seçin:"
 echo "  1) tr-west-1 (Istanbul)"
@@ -111,7 +110,6 @@ while [[ -z "$ALERT_MAIL" ]]; do
     read -p "Alert E-posta Adresi: " ALERT_MAIL
 done
 
-# RC Kimlik Bilgileri (ZORUNLU)
 while [[ -z "$RC_USER" ]]; do
     read -p "Rclone RC Kullanıcı Adı: " RC_USER
 done
@@ -130,8 +128,6 @@ fi
 # ============================================
 # 2.1 DİNAMİK PARAMETRELER (DETAYLI AÇIKLAMALI)
 # ============================================
-
-# --- VFS CACHE SÜRESİ ---
 echo ""
 echo "📦 VFS CACHE SÜRESİ AYARI:"
 echo "   Dosyaların yerel diskte ne kadar süre tutulacağını belirler."
@@ -146,7 +142,6 @@ if [[ ! "$VFS_CACHE_AGE" =~ (s|m|h|d)$ ]]; then
   VFS_CACHE_AGE="${VFS_CACHE_AGE}h"
 fi
 
-# --- VFS CACHE BOYUTU ---
 echo ""
 echo "📦 VFS CACHE BOYUTU AYARI:"
 echo "   Yerel diskin en fazla ne kadarını cache için kullanacağını belirler."
@@ -154,7 +149,6 @@ echo "   Örnekler: 100G, 500G, 1T"
 read -p "VFS Cache Max Boyut (varsayılan: 100G): " VFS_CACHE_SIZE
 VFS_CACHE_SIZE=${VFS_CACHE_SIZE:-100G}
 
-# --- MOUNT İZİNLERİ (AYRI AYRI SORULUR - HİÇ BİLMEYEN İÇİN) ---
 echo ""
 echo "=============================================="
 echo "🔐 ADIM ADIM DOSYA İZİN AYARLARI"
@@ -207,7 +201,6 @@ if [[ $PORT_ERROR -eq 1 ]]; then
     fi
 fi
 
-# Güvenlik duvarı kontrolü (UFW)
 if command -v ufw &> /dev/null && sudo ufw status | grep -q "Status: active"; then
     echo ""
     echo "🔒 UFW aktif. Gerekli portlar açılıyor..."
@@ -342,7 +335,7 @@ receivers:
 EOF
 
 # ============================================
-# 9. GRAFANA CONFIG (ŞİFRE SORULMAZ, admin/admin KALIR)
+# 9. GRAFANA CONFIG
 # ============================================
 echo "📝 Grafana config oluşturuluyor..."
 cat > grafana/grafana.ini <<EOF
@@ -363,7 +356,7 @@ from_name = PACS Grafana Alarm
 EOF
 
 # ============================================
-# 10. DOCKER COMPOSE DOSYASI (admin/admin Varsayılan)
+# 10. DOCKER COMPOSE DOSYASI
 # ============================================
 echo "📝 Docker Compose dosyası oluşturuluyor..."
 cat > docker-compose.yml <<'EOF'
